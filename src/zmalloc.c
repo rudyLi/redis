@@ -35,6 +35,7 @@
  * for instance to free results obtained by backtrace_symbols(). We need
  * to define this function before including zmalloc.h that may shadow the
  * free implementation if we use jemalloc or another non standard allocator. */
+/* 调用libc中free方法，以防include zmalloc.h 覆盖方法 */
 void zlibc_free(void *ptr) {
     free(ptr);
 }
@@ -47,6 +48,7 @@ void zlibc_free(void *ptr) {
 #ifdef HAVE_MALLOC_SIZE
 #define PREFIX_SIZE (0)
 #else
+/*sun 操作系统 longl long类型长度*/
 #if defined(__sun) || defined(__sparc) || defined(__sparc__)
 #define PREFIX_SIZE (sizeof(long long))
 #else
@@ -55,6 +57,7 @@ void zlibc_free(void *ptr) {
 #endif
 
 /* Explicitly override malloc/free etc when using tcmalloc. */
+/*可以使用goole的thread_cache molloc 库或者 jemalloc*/
 #if defined(USE_TCMALLOC)
 #define malloc(size) tc_malloc(size)
 #define calloc(count,size) tc_calloc(count,size)
@@ -71,6 +74,7 @@ void zlibc_free(void *ptr) {
 #define update_zmalloc_stat_add(__n) __sync_add_and_fetch(&used_memory, (__n))
 #define update_zmalloc_stat_sub(__n) __sync_sub_and_fetch(&used_memory, (__n))
 #else
+/* 统一保存内存大小状态，add为增加，sub为free时调用，是线程安全的*/
 #define update_zmalloc_stat_add(__n) do { \
     pthread_mutex_lock(&used_memory_mutex); \
     used_memory += (__n); \
@@ -84,17 +88,19 @@ void zlibc_free(void *ptr) {
 } while(0)
 
 #endif
-
+/*amalloc调用完后，更新内存大小记录*/
 #define update_zmalloc_stat_alloc(__n) do { \
     size_t _n = (__n); \
+	/*alloc分配内存大小是sizeof long 大小的倍数，即 sizeof（long）字节对其，增加cpu访问速度，在32位 long 4。64位 8字节 */
     if (_n&(sizeof(long)-1)) _n += sizeof(long)-(_n&(sizeof(long)-1)); \
+	  /*在redis操作中会出现多线程运行，所以对内存使用大小记录要线程安全*/
     if (zmalloc_thread_safe) { \
         update_zmalloc_stat_add(_n); \
     } else { \
         used_memory += _n; \
     } \
 } while(0)
-
+/*释放内存时更新使用内存大小记录*/
 #define update_zmalloc_stat_free(__n) do { \
     size_t _n = (__n); \
     if (_n&(sizeof(long)-1)) _n += sizeof(long)-(_n&(sizeof(long)-1)); \
@@ -109,29 +115,35 @@ static size_t used_memory = 0;
 static int zmalloc_thread_safe = 0;
 pthread_mutex_t used_memory_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+/*out of memory 异常处理函数*/
 static void zmalloc_default_oom(size_t size) {
     fprintf(stderr, "zmalloc: Out of memory trying to allocate %zu bytes\n",
         size);
+	/*冲洗内存空间，刷出到指定fd上,发送abort信号*/
     fflush(stderr);
     abort();
 }
 
+/*oom默认异常处理函数*/
 static void (*zmalloc_oom_handler)(size_t) = zmalloc_default_oom;
 
+/*malloc 的封装，不同的是另外开辟一快空间记录分配内存的大小*/
 void *zmalloc(size_t size) {
     void *ptr = malloc(size+PREFIX_SIZE);
 
     if (!ptr) zmalloc_oom_handler(size);
+	/*如果ptr地址包括mallocsize，则使用zmalloc_size方法获得内存大小*/
 #ifdef HAVE_MALLOC_SIZE
     update_zmalloc_stat_alloc(zmalloc_size(ptr));
     return ptr;
 #else
     *((size_t*)ptr) = size;
     update_zmalloc_stat_alloc(size+PREFIX_SIZE);
+	/*返回数据真正开始的地址*/
     return (char*)ptr+PREFIX_SIZE;
 #endif
 }
-
+/*封装calloc方法*/
 void *zcalloc(size_t size) {
     void *ptr = calloc(1, size+PREFIX_SIZE);
 
@@ -163,12 +175,14 @@ void *zrealloc(void *ptr, size_t size) {
     update_zmalloc_stat_alloc(zmalloc_size(newptr));
     return newptr;
 #else
+	/*先获得真正内存区域的起始地址，取出内存区域大小，调用realloc分配内存*/
     realptr = (char*)ptr-PREFIX_SIZE;
     oldsize = *((size_t*)realptr);
     newptr = realloc(realptr,size+PREFIX_SIZE);
     if (!newptr) zmalloc_oom_handler(size);
 
     *((size_t*)newptr) = size;
+	/*更新内存状态，先减小free的内存大小，再增加重新分配区域的大小*/
     update_zmalloc_stat_free(oldsize);
     update_zmalloc_stat_alloc(size);
     return (char*)newptr+PREFIX_SIZE;
@@ -206,15 +220,16 @@ void zfree(void *ptr) {
     free(realptr);
 #endif
 }
-
+/*字符串复制*/
 char *zstrdup(const char *s) {
+	/*还有末尾的0*/
     size_t l = strlen(s)+1;
     char *p = zmalloc(l);
 
     memcpy(p,s,l);
     return p;
 }
-
+/*查询使用内存大小*/
 size_t zmalloc_used_memory(void) {
     size_t um;
 
@@ -234,10 +249,11 @@ size_t zmalloc_used_memory(void) {
     return um;
 }
 
+/*设置线程安全标志函数*/
 void zmalloc_enable_thread_safeness(void) {
     zmalloc_thread_safe = 1;
 }
-
+/*自定义oom处理函数*/
 void zmalloc_set_oom_handler(void (*oom_handler)(size_t)) {
     zmalloc_oom_handler = oom_handler;
 }
@@ -257,15 +273,16 @@ void zmalloc_set_oom_handler(void (*oom_handler)(size_t)) {
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-
+/*此方法并不会快速返回rss resident set size 使用内存大小*/
 size_t zmalloc_get_rss(void) {
+	/*读取配置文件，查看page大小，因为redis自己有设置虚拟内存，操作系统的虚拟内存4k太大*/
     int page = sysconf(_SC_PAGESIZE);
     size_t rss;
     char buf[4096];
     char filename[256];
     int fd, count;
     char *p, *x;
-
+/*获得文件名/proc/pid/stat 记录每个进程的状态信息，proc/目录下的文件并没有写到硬盘中，状态为只读，此目录下记载着内涵返回用户的具体信息*/
     snprintf(filename,256,"/proc/%d/stat",getpid());
     if ((fd = open(filename,O_RDONLY)) == -1) return 0;
     if (read(fd,buf,4096) <= 0) {
@@ -277,6 +294,7 @@ size_t zmalloc_get_rss(void) {
     p = buf;
     count = 23; /* RSS is the 24th field in /proc/<pid>/stat */
     while(p && count--) {
+		/*找到一个 ‘ ’ 的位置*/
         p = strchr(p,' ');
         if (p) p++;
     }
@@ -284,8 +302,9 @@ size_t zmalloc_get_rss(void) {
     x = strchr(p,' ');
     if (!x) return 0;
     *x = '\0';
-
+    /*字符串转为10进制数*/
     rss = strtoll(p,NULL,10);
+	/*乘以没页大小*/
     rss *= page;
     return rss;
 }
@@ -321,11 +340,13 @@ size_t zmalloc_get_rss(void) {
 #endif
 
 /* Fragmentation = RSS / allocated-bytes */
+/*碎片率，rss除以内存使用记录*/
 float zmalloc_get_fragmentation_ratio(void) {
     return (float)zmalloc_get_rss()/zmalloc_used_memory();
 }
 
 #if defined(HAVE_PROC_SMAPS)
+/*需要swap和写入到硬盘的那部分区域为dirty，可以理解为内存中这部分有写操作*/
 size_t zmalloc_get_private_dirty(void) {
     char line[1024];
     size_t pd = 0;
