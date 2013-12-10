@@ -356,10 +356,13 @@ int anetTcpServer(char *err, int port, char *bindaddr)
 
     memset(&sa,0,sizeof(sa));
     sa.sin_family = AF_INET;
+	/*必须是网络字节序16位*/
     sa.sin_port = htons(port);
-	/*机器上所有的网络地址 h host 主机字节序，cpu使用的是小端 n network  网络字节序是大端l long s short*/
+	/*机器上所有的网络地址 h host 主机字节序，cpu使用的是小端 n network  网络字节序是大端l long s short
+	 * 网络字节序 32位*/
     sa.sin_addr.s_addr = htonl(INADDR_ANY);
-	/*如果指定勒绑定的地址，则替换*/
+	/*如果指定勒绑定的地址，则替换
+	 * ip字符串（点分10进制ip）网络字节序的32位ip地址 */
     if (bindaddr && inet_aton(bindaddr, &sa.sin_addr) == 0) {
         anetSetError(err, "invalid bind address");
         close(s);
