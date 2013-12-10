@@ -51,6 +51,7 @@ static void anetSetError(char *err, const char *fmt, ...)
 {
     va_list ap;
 
+	/*获取可变参数，并一个一个处理*/
     if (!err) return;
     va_start(ap, fmt);
     vsnprintf(err, ANET_ERR_LEN, fmt, ap);
@@ -64,10 +65,12 @@ int anetNonBlock(char *err, int fd)
     /* Set the socket non-blocking.
      * Note that fcntl(2) for F_GETFL and F_SETFL can't be
      * interrupted by a signal. */
+	/*设置fd为非阻塞，先获取起文件flag然后再设置*/
     if ((flags = fcntl(fd, F_GETFL)) == -1) {
         anetSetError(err, "fcntl(F_GETFL): %s", strerror(errno));
         return ANET_ERR;
     }
+	/*阻塞的概念是针对系统内核准备数据阶段，如果不用一直等待内核准备数据阶段，则为非阻塞*/
     if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) == -1) {
         anetSetError(err, "fcntl(F_SETFL,O_NONBLOCK): %s", strerror(errno));
         return ANET_ERR;
@@ -78,11 +81,12 @@ int anetNonBlock(char *err, int fd)
 /* Set TCP keep alive option to detect dead peers. The interval option
  * is only used for Linux as we are using Linux-specific APIs to set
  * the probe send time, interval, and count. */
+/*设置keepalive选项*/
 int anetKeepAlive(char *err, int fd, int interval)
 {
-    int val = 1;
-
-    if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &val, sizeof(val)) == -1)
+	/*开启keepalive连接检查客户端状态*/
+    int val = 1; 
+	if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &val, sizeof(val)) == -1)
     {
         anetSetError(err, "setsockopt SO_KEEPALIVE: %s", strerror(errno));
         return ANET_ERR;
@@ -94,6 +98,7 @@ int anetKeepAlive(char *err, int fd, int interval)
      * actually useful. */
 
     /* Send first probe after interval. */
+	/*默认是2小时，5次探测，这里可以自己设置时间，间隔时间，核探测次数，这时socket选项为传输层tcp级别*/
     val = interval;
     if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &val, sizeof(val)) < 0) {
         anetSetError(err, "setsockopt TCP_KEEPIDLE: %s\n", strerror(errno));
@@ -122,6 +127,7 @@ int anetKeepAlive(char *err, int fd, int interval)
     return ANET_OK;
 }
 
+/*配置nodelay 算法，在给定连接上有待确认数据则一直阻塞指定数据确认才在此连接上发送小分组*/
 static int anetSetTcpNoDelay(char *err, int fd, int val)
 {
     if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val)) == -1)
@@ -142,7 +148,8 @@ int anetDisableTcpNoDelay(char *err, int fd)
     return anetSetTcpNoDelay(err, fd, 0);
 }
 
-
+/*socket 发送缓冲区，发送数据从用户的应用进程内存写到缓冲区，直到对方发回ack才清空里面的数据
+ * recevbuf进行流量控制， buf大小还于mss有关，有待继续查看*/
 int anetSetSendBuffer(char *err, int fd, int buffsize)
 {
     if (setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &buffsize, sizeof(buffsize)) == -1)
@@ -163,11 +170,13 @@ int anetTcpKeepAlive(char *err, int fd)
     return ANET_OK;
 }
 
+/*解析host，host获取地址*/
 int anetResolve(char *err, char *host, char *ipbuf)
 {
     struct sockaddr_in sa;
 
     sa.sin_family = AF_INET;
+	/*a ascll n network ip 转为网络字节序*/
     if (inet_aton(host, &sa.sin_addr) == 0) {
         struct hostent *he;
 
@@ -191,6 +200,7 @@ static int anetCreateSocket(char *err, int domain) {
 
     /* Make sure connection-intensive things like the redis benchmark
      * will be able to close/open sockets a zillion of times */
+	/*允许其他进程可以绑定此接口，在同一个端口启动多个服务器实例*/
     if (setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) == -1) {
         anetSetError(err, "setsockopt SO_REUSEADDR: %s", strerror(errno));
         return ANET_ERR;
@@ -200,6 +210,7 @@ static int anetCreateSocket(char *err, int domain) {
 
 #define ANET_CONNECT_NONE 0
 #define ANET_CONNECT_NONBLOCK 1
+/*tcp连接包括创建socket包括socket 地址初始化核连接操作*/
 static int anetTcpGenericConnect(char *err, char *addr, int port, int flags)
 {
     int s;
@@ -247,6 +258,7 @@ int anetTcpNonBlockConnect(char *err, char *addr, int port)
     return anetTcpGenericConnect(err,addr,port,ANET_CONNECT_NONBLOCK);
 }
 
+/*本地socket连接创建*/
 int anetUnixGenericConnect(char *err, char *path, int flags)
 {
     int s;
@@ -278,6 +290,7 @@ int anetUnixConnect(char *err, char *path)
     return anetUnixGenericConnect(err,path,ANET_CONNECT_NONE);
 }
 
+/*创建非阻塞socket连接*/
 int anetUnixNonBlockConnect(char *err, char *path)
 {
     return anetUnixGenericConnect(err,path,ANET_CONNECT_NONBLOCK);
@@ -285,6 +298,7 @@ int anetUnixNonBlockConnect(char *err, char *path)
 
 /* Like read(2) but make sure 'count' is read before to return
  * (unless error or EOF condition is encountered) */
+/*read 方法确保count个字符被读除非错误或遇到eof*/
 int anetRead(int fd, char *buf, int count)
 {
     int nread, totlen = 0;
@@ -312,7 +326,7 @@ int anetWrite(int fd, char *buf, int count)
     }
     return totlen;
 }
-
+/*监听方法， 包括绑定核listen*/
 static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len) {
     if (bind(s,sa,len) == -1) {
         anetSetError(err, "bind: %s", strerror(errno));
@@ -323,6 +337,7 @@ static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len) {
     /* Use a backlog of 512 entries. We pass 511 to the listen() call because
      * the kernel does: backlogsize = roundup_pow_of_two(backlogsize + 1);
      * which will thus give us a backlog of 512 entries */
+	/*存放建立成功连接的最大个数 backlog参数*/
     if (listen(s, 511) == -1) {
         anetSetError(err, "listen: %s", strerror(errno));
         close(s);
@@ -330,7 +345,7 @@ static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len) {
     }
     return ANET_OK;
 }
-
+/*tcpserver domain AF_INEt*/
 int anetTcpServer(char *err, int port, char *bindaddr)
 {
     int s;
@@ -342,7 +357,9 @@ int anetTcpServer(char *err, int port, char *bindaddr)
     memset(&sa,0,sizeof(sa));
     sa.sin_family = AF_INET;
     sa.sin_port = htons(port);
+	/*机器上所有的网络地址 h host 主机字节序，cpu使用的是小端 n network  网络字节序是大端l long s short*/
     sa.sin_addr.s_addr = htonl(INADDR_ANY);
+	/*如果指定勒绑定的地址，则替换*/
     if (bindaddr && inet_aton(bindaddr, &sa.sin_addr) == 0) {
         anetSetError(err, "invalid bind address");
         close(s);
@@ -352,10 +369,11 @@ int anetTcpServer(char *err, int port, char *bindaddr)
         return ANET_ERR;
     return s;
 }
-
+/*unix socket并监听 domain是AF_LOCAL or AF_UNIX进程间通信, path 可用的socket路径名*/
 int anetUnixServer(char *err, char *path, mode_t perm)
 {
     int s;
+	/*本地socket地址*/
     struct sockaddr_un sa;
 
     if ((s = anetCreateSocket(err,AF_LOCAL)) == ANET_ERR)
@@ -388,6 +406,7 @@ static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *l
     return fd;
 }
 
+/*tcp accept, 返回accept的fd，并将ip和port记录下来*/
 int anetTcpAccept(char *err, int s, char *ip, int *port) {
     int fd;
     struct sockaddr_in sa;
@@ -400,6 +419,7 @@ int anetTcpAccept(char *err, int s, char *ip, int *port) {
     return fd;
 }
 
+/*unix连接*/
 int anetUnixAccept(char *err, int s) {
     int fd;
     struct sockaddr_un sa;
@@ -410,6 +430,7 @@ int anetUnixAccept(char *err, int s) {
     return fd;
 }
 
+/*获取与socket相连的socketip port信息*/
 int anetPeerToString(int fd, char *ip, int *port) {
     struct sockaddr_in sa;
     socklen_t salen = sizeof(sa);
@@ -425,6 +446,7 @@ int anetPeerToString(int fd, char *ip, int *port) {
     return 0;
 }
 
+/*获取socket的ip port信息*/
 int anetSockName(int fd, char *ip, int *port) {
     struct sockaddr_in sa;
     socklen_t salen = sizeof(sa);
