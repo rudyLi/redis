@@ -363,12 +363,14 @@ int sdscmp(const sds s1, const sds s2) {
  * requires length arguments. sdssplit() is just the
  * same function but for zero-terminated strings.
  */
+/*用sep分割s，返回分割后的字符串组，sep可以是多个字符，出错返回null，此方法为二进制安全，count为几个token*/
 sds *sdssplitlen(const char *s, int len, const char *sep, int seplen, int *count) {
     int elements = 0, slots = 5, start = 0, j;
     sds *tokens;
 
     if (seplen < 1 || len < 0) return NULL;
 
+	/*数组*/
     tokens = zmalloc(sizeof(sds)*slots);
     if (tokens == NULL) return NULL;
 
@@ -378,6 +380,7 @@ sds *sdssplitlen(const char *s, int len, const char *sep, int seplen, int *count
     }
     for (j = 0; j < (len-(seplen-1)); j++) {
         /* make sure there is room for the next element and the final one */
+		/*预定slot为5，当分割的元素为4时，则slots扩大两倍。重新分配区域*/
         if (slots < elements+2) {
             sds *newtokens;
 
@@ -387,6 +390,7 @@ sds *sdssplitlen(const char *s, int len, const char *sep, int seplen, int *count
             tokens = newtokens;
         }
         /* search the separator */
+		/*查询分割符，当分隔符为1比较单个元素，如果多个符号呢，memcmp比较*/
         if ((seplen == 1 && *(s+j) == sep[0]) || (memcmp(s+j,sep,seplen) == 0)) {
             tokens[elements] = sdsnewlen(s+start,j-start);
             if (tokens[elements] == NULL) goto cleanup;
@@ -396,6 +400,7 @@ sds *sdssplitlen(const char *s, int len, const char *sep, int seplen, int *count
         }
     }
     /* Add the final element. We are sure there is room in the tokens array. */
+	/*添加最后元素，设置count*/
     tokens[elements] = sdsnewlen(s+start,len-start);
     if (tokens[elements] == NULL) goto cleanup;
     elements++;
@@ -419,7 +424,9 @@ void sdsfreesplitres(sds *tokens, int count) {
     zfree(tokens);
 }
 
+/*长整型转为字符串*/
 sds sdsfromlonglong(long long value) {
+	/*buf 负责开辟空间，p负责给数组赋值*/
     char buf[32], *p;
     unsigned long long v;
 
@@ -434,6 +441,7 @@ sds sdsfromlonglong(long long value) {
     return sdsnewlen(p,32-(p-buf));
 }
 
+/*字符串之间用双引号连接*/
 sds sdscatrepr(sds s, const char *p, size_t len) {
     s = sdscatlen(s,"\"",1);
     while(len--) {
@@ -461,6 +469,7 @@ sds sdscatrepr(sds s, const char *p, size_t len) {
 
 /* Helper function for sdssplitargs() that returns non zero if 'c'
  * is a valid hex digit. */
+/*16进制*/
 int is_hex_digit(char c) {
     return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
            (c >= 'A' && c <= 'F');
@@ -468,6 +477,7 @@ int is_hex_digit(char c) {
 
 /* Helper function for sdssplitargs() that converts an hex digit into an
  * integer from 0 to 15 */
+/*16进制转10进制*/
 int hex_digit_to_int(char c) {
     switch(c) {
     case '0': return 0;
@@ -509,6 +519,7 @@ int hex_digit_to_int(char c) {
  * quotes or closed quotes followed by non space characters
  * as in: "foo"bar or "foo'
  */
+/*一行字符串分割成各个变量，变量个数存储在argc，返回sds数组，调用者必须清楚sds strings*/
 sds *sdssplitargs(const char *line, int *argc) {
     const char *p = line;
     char *current = NULL;
@@ -628,6 +639,7 @@ err:
  *
  * The function returns the sds string pointer, that is always the same
  * as the input pointer since no resize is needed. */
+/*s字符串特定字符替换,11对应*/
 sds sdsmapchars(sds s, const char *from, const char *to, size_t setlen) {
     size_t j, i, l = sdslen(s);
 
