@@ -38,17 +38,24 @@
 
 typedef char *sds;
 
+/*sds handler,包括字符串信息（长度 未用长度和内容本身），有人也理解为sds header 包含sds信息*/
 struct sdshdr {
     int len;
     int free;
     char buf[];
 };
 
+/*inline 直接汇编加入到代码中，省去系统调用，快速
+ * GCC的static inline定义很容易理解：你可以把它认为是一个static的函数，加上了
+ * inline的属性。这个函数大部分表现和普通的static函数一样，只不过在调用这种函
+ * 数的时候，gcc会在其调用处将其汇编码展开编译而不为这个函数生成独立的汇编码
+ * sds的地址是sdshdr结构体中buf的地址，要想返回结构体的地址，则减去结构体大小即可*/
 static inline size_t sdslen(const sds s) {
     struct sdshdr *sh = (void*)(s-(sizeof(struct sdshdr)));
     return sh->len;
 }
 
+/*可用长度*/
 static inline size_t sdsavail(const sds s) {
     struct sdshdr *sh = (void*)(s-(sizeof(struct sdshdr)));
     return sh->free;

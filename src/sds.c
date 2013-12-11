@@ -36,10 +36,14 @@
 #include "sds.h"
 #include "zmalloc.h"
 
+/*char * 地址可变内容不可修改， char a[] 内容可变，地址不可变，字符串常量区和栈中，保留两份
+ * sds new时创建时会创建一个sdshdr，初始化长度和free，赋值结构体中的buf长度的字符数组
+ * 实际返回的地址是buf的地址, init 为初始化值*/
 sds sdsnewlen(const void *init, size_t initlen) {
     struct sdshdr *sh;
 
     if (init) {
+      /*字符串以0结尾*/
         sh = zmalloc(sizeof(struct sdshdr)+initlen+1);
     } else {
         sh = zcalloc(sizeof(struct sdshdr)+initlen+1);
@@ -58,14 +62,17 @@ sds sdsempty(void) {
 }
 
 sds sdsnew(const char *init) {
+  /*不包括结尾0*/
     size_t initlen = (init == NULL) ? 0 : strlen(init);
     return sdsnewlen(init, initlen);
 }
 
+/*复制*/
 sds sdsdup(const sds s) {
     return sdsnewlen(s, sdslen(s));
 }
 
+/*删除时要返回sdshdr结构体的初始地址*/
 void sdsfree(sds s) {
     if (s == NULL) return;
     zfree(s-sizeof(struct sdshdr));
@@ -91,6 +98,7 @@ void sdsclear(sds s) {
  * 
  * Note: this does not change the *size* of the sds string as returned
  * by sdslen(), but only the free buffer space we have. */
+/*sds加长*/
 sds sdsMakeRoomFor(sds s, size_t addlen) {
     struct sdshdr *sh, *newsh;
     size_t free = sdsavail(s);
@@ -100,9 +108,12 @@ sds sdsMakeRoomFor(sds s, size_t addlen) {
     len = sdslen(s);
     sh = (void*) (s-(sizeof(struct sdshdr)));
     newlen = (len+addlen);
+    /*预先分配最大长度为1024*1024*/
     if (newlen < SDS_MAX_PREALLOC)
+      /*扩大两倍*/
         newlen *= 2;
     else
+      /*扩展新的长度*/
         newlen += SDS_MAX_PREALLOC;
     newsh = zrealloc(sh, sizeof(struct sdshdr)+newlen+1);
     if (newsh == NULL) return NULL;
@@ -114,6 +125,7 @@ sds sdsMakeRoomFor(sds s, size_t addlen) {
 /* Reallocate the sds string so that it has no free space at the end. The
  * contained string remains not altered, but next concatenation operations
  * will require a reallocation. */
+/*去除free空间，realloc*/
 sds sdsRemoveFreeSpace(sds s) {
     struct sdshdr *sh;
 
@@ -123,6 +135,7 @@ sds sdsRemoveFreeSpace(sds s) {
     return sh->buf;
 }
 
+/*s占用的空间*/
 size_t sdsAllocSize(sds s) {
     struct sdshdr *sh = (void*) (s-(sizeof(struct sdshdr)));
 
@@ -150,6 +163,7 @@ size_t sdsAllocSize(sds s) {
  * ... check for nread <= 0 and handle it ...
  * sdsIncrLen(s, nhread);
  */
+/*在已有的基础上增加长度，如果incr大于free则直接异常，incr 也可以为负数不会重新分配*/
 void sdsIncrLen(sds s, int incr) {
     struct sdshdr *sh = (void*) (s-(sizeof(struct sdshdr)));
 
@@ -162,6 +176,7 @@ void sdsIncrLen(sds s, int incr) {
 
 /* Grow the sds to have the specified length. Bytes that were not part of
  * the original length of the sds will be set to zero. */
+/**/
 sds sdsgrowzero(sds s, size_t len) {
     struct sdshdr *sh = (void*)(s-(sizeof(struct sdshdr)));
     size_t totlen, curlen = sh->len;
@@ -171,6 +186,7 @@ sds sdsgrowzero(sds s, size_t len) {
     if (s == NULL) return NULL;
 
     /* Make sure added region doesn't contain garbage */
+    /*增加的长度字符串在len_curlen设为0*/
     sh = (void*)(s-(sizeof(struct sdshdr)));
     memset(s+curlen,0,(len-curlen+1)); /* also set trailing \0 byte */
     totlen = sh->len+sh->free;
@@ -179,6 +195,7 @@ sds sdsgrowzero(sds s, size_t len) {
     return s;
 }
 
+/*新加字符传在其尾部*/
 sds sdscatlen(sds s, const void *t, size_t len) {
     struct sdshdr *sh;
     size_t curlen = sdslen(s);
@@ -196,11 +213,11 @@ sds sdscatlen(sds s, const void *t, size_t len) {
 sds sdscat(sds s, const char *t) {
     return sdscatlen(s, t, strlen(t));
 }
-
+/*连接sds*/
 sds sdscatsds(sds s, const sds t) {
     return sdscatlen(s, t, sdslen(t));
 }
-
+/*sdscopy长度*/
 sds sdscpylen(sds s, const char *t, size_t len) {
     struct sdshdr *sh = (void*) (s-(sizeof(struct sdshdr)));
     size_t totlen = sh->free+sh->len;
@@ -221,7 +238,7 @@ sds sdscpylen(sds s, const char *t, size_t len) {
 sds sdscpy(sds s, const char *t) {
     return sdscpylen(s, t, strlen(t));
 }
-
+/*指定格式多参数链接到sds尾部,避免一次性分配比较大的内存，默认值为16，如果不够大小翻倍继续copy*/
 sds sdscatvprintf(sds s, const char *fmt, va_list ap) {
     va_list cpy;
     char *buf, *t;
@@ -230,6 +247,7 @@ sds sdscatvprintf(sds s, const char *fmt, va_list ap) {
     while(1) {
         buf = zmalloc(buflen);
         if (buf == NULL) return NULL;
+        /*这里设置倒数第二位是结束符，判断是否吧ap全部copy完*/
         buf[buflen-2] = '\0';
         va_copy(cpy,ap);
         vsnprintf(buf, buflen, fmt, cpy);
@@ -244,7 +262,7 @@ sds sdscatvprintf(sds s, const char *fmt, va_list ap) {
     zfree(buf);
     return t;
 }
-
+/*可变参数指定格式链接在到指定s的尾部*/
 sds sdscatprintf(sds s, const char *fmt, ...) {
     va_list ap;
     char *t;
@@ -253,7 +271,7 @@ sds sdscatprintf(sds s, const char *fmt, ...) {
     va_end(ap);
     return t;
 }
-
+/*去除首尾指定的字符*/
 sds sdstrim(sds s, const char *cset) {
     struct sdshdr *sh = (void*) (s-(sizeof(struct sdshdr)));
     char *start, *end, *sp, *ep;
@@ -271,6 +289,7 @@ sds sdstrim(sds s, const char *cset) {
     return s;
 }
 
+/*开始到结束的字符串,可以是负数*/
 sds sdsrange(sds s, int start, int end) {
     struct sdshdr *sh = (void*) (s-(sizeof(struct sdshdr)));
     size_t newlen, len = sdslen(s);
@@ -286,8 +305,10 @@ sds sdsrange(sds s, int start, int end) {
     }
     newlen = (start > end) ? 0 : (end-start)+1;
     if (newlen != 0) {
+        /*start >  长度为0*/
         if (start >= (signed)len) {
             newlen = 0;
+            /*end 大于len，则end为字符串前一个*/
         } else if (end >= (signed)len) {
             end = len-1;
             newlen = (start > end) ? 0 : (end-start)+1;
@@ -313,7 +334,7 @@ void sdstoupper(sds s) {
 
     for (j = 0; j < len; j++) s[j] = toupper(s[j]);
 }
-
+/*比较最小长度大小*/
 int sdscmp(const sds s1, const sds s2) {
     size_t l1, l2, minlen;
     int cmp;
