@@ -51,10 +51,12 @@
  * enable/disable resizing of the hash table as needed. This is very important
  * for Redis, as we use copy-on-write and don't want to move too much memory
  * around when there is a child performing saving operations.
+ * 是否使能resize，对与redis非常重要当子进程在执行保存操作时，我们使用cop方式就是移动很多内存
  *
  * Note that even when dict_can_resize is set to 0, not all resizes are
  * prevented: an hash table is still allowed to grow if the ratio between
  * the number of elements and the buckets > dict_force_resize_ratio. */
+/*即使resize设为0，hashtable also can grow*/
 static int dict_can_resize = 1;
 static unsigned int dict_force_resize_ratio = 5;
 
@@ -67,6 +69,7 @@ static int _dictInit(dict *ht, dictType *type, void *privDataPtr);
 
 /* -------------------------- hash functions -------------------------------- */
 
+/*key hash 映射*/
 /* Thomas Wang's 32 bit Mix Function */
 unsigned int dictIntHashFunction(unsigned int key)
 {
@@ -80,6 +83,7 @@ unsigned int dictIntHashFunction(unsigned int key)
 }
 
 /* Identity hash function for integer keys */
+/*对于整数key的唯一key值处理*/
 unsigned int dictIdentityHashFunction(unsigned int key)
 {
     return key;
@@ -106,6 +110,7 @@ uint32_t dictGetHashFunctionSeed(void) {
  * 2. It will not produce the same results on little-endian and big-endian
  *    machines.
  */
+/*产生hash值*/
 unsigned int dictGenHashFunction(const void *key, int len) {
     /* 'm' and 'r' are mixing constants generated offline.
      They're not really 'magic', they just happen to work well.  */
@@ -150,6 +155,7 @@ unsigned int dictGenHashFunction(const void *key, int len) {
 }
 
 /* And a case insensitive hash function (based on djb hash) */
+/*大小写不敏感的hashkey*/
 unsigned int dictGenCaseHashFunction(const unsigned char *buf, int len) {
     unsigned int hash = (unsigned int)dict_hash_function_seed;
 
@@ -195,6 +201,7 @@ int _dictInit(dict *d, dictType *type,
 
 /* Resize the table to the minimal size that contains all the elements,
  * but with the invariant of a USED/BUCKETS ratio near to <= 1 */
+/*resize 最小大小, 如果dict_can_resize为0 或者isrehashing的时候不能resize*/
 int dictResize(dict *d)
 {
     int minimal;
@@ -207,9 +214,11 @@ int dictResize(dict *d)
 }
 
 /* Expand or create the hash table */
+/*扩充字典*/
 int dictExpand(dict *d, unsigned long size)
 {
     dictht n; /* the new hash table */
+    /*扩充size大小 4的2^2倍*/
     unsigned long realsize = _dictNextPower(size);
 
     /* the size is invalid if it is smaller than the number of

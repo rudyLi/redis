@@ -1,9 +1,11 @@
 /* Hash Tables Implementation.
+ * hash table实现
  *
  * This file implements in-memory hash tables with insert/del/replace/find/
  * get-random-element operations. Hash tables will auto-resize if needed
  * tables of power of two in size are used, collisions are handled by
  * chaining. See the source code for more information... :)
+ * 内存内hash表实现，包括插入删除替换查找获得随机元素操作。hashtable可以重新分配大小 或者2的平方扩充，解决冲突是链表
  *
  * Copyright (c) 2006-2012, Salvatore Sanfilippo <antirez at gmail dot com>
  * All rights reserved.
@@ -44,6 +46,7 @@
 /* Unused arguments generate annoying warnings... */
 #define DICT_NOTUSED(V) ((void) V)
 
+/*字典实体 key v v是union只能是其中一个, 指向下一个节点*/
 typedef struct dictEntry {
     void *key;
     union {
@@ -53,7 +56,7 @@ typedef struct dictEntry {
     } v;
     struct dictEntry *next;
 } dictEntry;
-
+/*定义了字典类型的一些方法*/
 typedef struct dictType {
     unsigned int (*hashFunction)(const void *key);
     void *(*keyDup)(void *privdata, const void *key);
@@ -65,15 +68,21 @@ typedef struct dictType {
 
 /* This is our hash table structure. Every dictionary has two of this as we
  * implement incremental rehashing, for the old to the new table. */
+/*具体hash table结构，每个字典有两个用来rehash，旧table 到新的table*/
 typedef struct dictht {
+  /*哈希表节点指针数组，俗称bucket*/
     dictEntry **table;
+    /*节点大小*/
     unsigned long size;
+    /*指针数组长度掩码，用于计算索引*/
     unsigned long sizemask;
     unsigned long used;
 } dictht;
 
+/*字典, 包含前一个数据，rehashidx控制rehash，还有迭代器数量*/
 typedef struct dict {
     dictType *type;
+    /*私有数据*/
     void *privdata;
     dictht ht[2];
     int rehashidx; /* rehashing not in progress if rehashidx == -1 */
