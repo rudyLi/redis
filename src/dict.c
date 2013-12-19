@@ -228,6 +228,7 @@ int dictExpand(dict *d, unsigned long size)
 
     /* Allocate the new hash table and initialize all pointers to NULL */
     n.size = realsize;
+    /*用来查找dictenter*/
     n.sizemask = realsize-1;
     n.table = zcalloc(realsize*sizeof(dictEntry*));
     n.used = 0;
@@ -249,6 +250,7 @@ int dictExpand(dict *d, unsigned long size)
  * keys to move from the old to the new hash table, otherwise 0 is returned.
  * Note that a rehashing step consists in moving a bucket (that may have more
  * thank one key as we use chaining) from the old to the new hash table. */
+/*dictrehash返回值为1时还有key没有移动*/
 int dictRehash(dict *d, int n) {
     if (!dictIsRehashing(d)) return 0;
 
@@ -256,7 +258,9 @@ int dictRehash(dict *d, int n) {
         dictEntry *de, *nextde;
 
         /* Check if we already rehashed the whole table... */
+        /*检查如果used 为0时则rehash完*/
         if (d->ht[0].used == 0) {
+          /*释放掉ht0 table空间*/
             zfree(d->ht[0].table);
             d->ht[0] = d->ht[1];
             _dictReset(&d->ht[1]);
@@ -268,14 +272,17 @@ int dictRehash(dict *d, int n) {
          * elements because ht[0].used != 0 */
         assert(d->ht[0].size > (unsigned)d->rehashidx);
         while(d->ht[0].table[d->rehashidx] == NULL) d->rehashidx++;
+        /*rehashidx 从0开始*/
         de = d->ht[0].table[d->rehashidx];
         /* Move all the keys in this bucket from the old to the new hash HT */
+        /*从每个entry是个链表，遍历*/
         while(de) {
             unsigned int h;
 
             nextde = de->next;
             /* Get the index in the new hash table */
             h = dictHashKey(d, de->key) & d->ht[1].sizemask;
+            /*如果ht2上有元素放到de的后面，重新组成一个链表*/
             de->next = d->ht[1].table[h];
             d->ht[1].table[h] = de;
             d->ht[0].used--;
@@ -296,6 +303,7 @@ long long timeInMilliseconds(void) {
 }
 
 /* Rehash for an amount of time between ms milliseconds and ms+1 milliseconds */
+/*指定时间执行rehash，间隔ms, 每次hash100个*/
 int dictRehashMilliseconds(dict *d, int ms) {
     long long start = timeInMilliseconds();
     int rehashes = 0;
@@ -315,6 +323,8 @@ int dictRehashMilliseconds(dict *d, int ms) {
  * This function is called by common lookup or update operations in the
  * dictionary so that the hash table automatically migrates from H1 to H2
  * while it is actively used. */
+/*当没有安全迭代器时，执行一步hash
+ * 当有迭代器时，不能执行rehash，否则迭代时搞乱两个hashtable*/
 static void _dictRehashStep(dict *d) {
     if (d->iterators == 0) dictRehash(d,1);
 }
@@ -344,6 +354,7 @@ int dictAdd(dict *d, void *key, void *val)
  * If key already exists NULL is returned.
  * If key was added, the hash entry is returned to be manipulated by the caller.
  */
+/*低级别的添加数据，不设置值，方便用户调用接口设定自己想要的val类型,key存在则返回null*/
 dictEntry *dictAddRaw(dict *d, void *key)
 {
     int index;
@@ -373,6 +384,7 @@ dictEntry *dictAddRaw(dict *d, void *key)
  * Return 1 if the key was added from scratch, 0 if there was already an
  * element with such key and dictReplace() just performed a value update
  * operation. */
+/*返回1则表示添加成功，返回0则表示更新成功*/
 int dictReplace(dict *d, void *key, void *val)
 {
     dictEntry *entry, auxentry;
@@ -388,6 +400,9 @@ int dictReplace(dict *d, void *key, void *val)
      * as the previous one. In this context, think to reference counting,
      * you want to increment (set), and then decrement (free), and not the
      * reverse. */
+    /*set先然后再free*/
+    /*内容赋值给auxentry*/
+    /*引用计数的问题自己实现了一套*/
     auxentry = *entry;
     dictSetVal(d, entry, val);
     dictFreeVal(d, &auxentry);
