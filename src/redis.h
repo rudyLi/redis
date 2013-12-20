@@ -356,12 +356,15 @@
 /* The actual Redis Object */
 #define REDIS_LRU_CLOCK_MAX ((1<<21)-1) /* Max value of obj->lru */
 #define REDIS_LRU_CLOCK_RESOLUTION 10 /* LRU clock resolution in seconds */
+/*实现多态，不同的类型不同的操作集合，每个键都有类型，执行相应的操作*/
 typedef struct redisObject {
     unsigned type:4;
+    /*对齐位*/
     unsigned notused:2;     /* Not used */
-    unsigned encoding:4;
+    unsigned encoding:4;    /*没一种数据类型拥有不止一种底层实现，指定实现方式*/
     unsigned lru:22;        /* lru time (relative to server.lruclock) */
     int refcount;
+    /*指向对象的值*/
     void *ptr;
 } robj;
 

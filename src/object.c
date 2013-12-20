@@ -32,11 +32,13 @@
 #include <math.h>
 #include <ctype.h>
 
+/*创建对象,都redis中都表示这种数据类型*/
 robj *createObject(int type, void *ptr) {
     robj *o = zmalloc(sizeof(*o));
     o->type = type;
     o->encoding = REDIS_ENCODING_RAW;
     o->ptr = ptr;
+    /*创建时加一*/
     o->refcount = 1;
 
     /* Set the LRU to the current lruclock (minutes resolution). */
@@ -51,6 +53,7 @@ robj *createStringObject(char *ptr, size_t len) {
 robj *createStringObjectFromLongLong(long long value) {
     robj *o;
     if (value >= 0 && value < REDIS_SHARED_INTEGERS) {
+      /*整数也是个对象啊*/
         incrRefCount(shared.integers[value]);
         o = shared.integers[value];
     } else {
@@ -59,6 +62,7 @@ robj *createStringObjectFromLongLong(long long value) {
             o->encoding = REDIS_ENCODING_INT;
             o->ptr = (void*)((long)value);
         } else {
+          /*超过longmax*/
             o = createObject(REDIS_STRING,sdsfromlonglong(value));
         }
     }
@@ -76,8 +80,10 @@ robj *createStringObjectFromLongDouble(long double value) {
      * that is "non surprising" for the user (that is, most small decimal
      * numbers will be represented in a way that when converted back into
      * a string are exactly the same as what the user typed.) */
+    /*17精度可以标识128位float正确转化为字符串*/
     len = snprintf(buf,sizeof(buf),"%.17Lf", value);
     /* Now remove trailing zeroes after the '.' */
+    /*去掉.后面的0*/
     if (strchr(buf,'.') != NULL) {
         char *p = buf+len-1;
         while(*p == '0') {
@@ -97,6 +103,7 @@ robj *dupStringObject(robj *o) {
 robj *createListObject(void) {
     list *l = listCreate();
     robj *o = createObject(REDIS_LIST,l);
+    /*free 只是减少引用计数*/
     listSetFreeMethod(l,decrRefCountVoid);
     o->encoding = REDIS_ENCODING_LINKEDLIST;
     return o;
