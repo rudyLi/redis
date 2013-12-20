@@ -214,7 +214,7 @@ int dictResize(dict *d)
 }
 
 /* Expand or create the hash table */
-/*扩充字典*/
+/*扩充hash table，如果是初始化则扩充两个table都扩充，否则扩充为第二个table/
 int dictExpand(dict *d, unsigned long size)
 {
     dictht n; /* the new hash table */
@@ -402,7 +402,7 @@ int dictReplace(dict *d, void *key, void *val)
      * reverse. */
     /*set先然后再free*/
     /*内容赋值给auxentry*/
-    /*引用计数的问题自己实现了一套*/
+    /*引用计数的问题自己实现了一套, 以后继续看*/
     auxentry = *entry;
     dictSetVal(d, entry, val);
     dictFreeVal(d, &auxentry);
@@ -468,6 +468,7 @@ int dictDeleteNoFree(dict *ht, const void *key) {
 }
 
 /* Destroy an entire dictionary */
+/*清空整个ht*/
 int _dictClear(dict *d, dictht *ht)
 {
     unsigned long i;
@@ -534,6 +535,7 @@ dictIterator *dictGetIterator(dict *d)
     dictIterator *iter = zmalloc(sizeof(*iter));
 
     iter->d = d;
+    /*默认为table0*/
     iter->table = 0;
     iter->index = -1;
     iter->safe = 0;
@@ -554,10 +556,12 @@ dictEntry *dictNext(dictIterator *iter)
     while (1) {
         if (iter->entry == NULL) {
             dictht *ht = &iter->d->ht[iter->table];
+            /*如果safe 为1 则iterators加一，rehash会检验iter大小，则不进行rehash*/
             if (iter->safe && iter->index == -1 && iter->table == 0)
                 iter->d->iterators++;
             iter->index++;
             if (iter->index >= (signed) ht->size) {
+              /*如果正rehash，且指向table0，则指向第二个table*/
                 if (dictIsRehashing(iter->d) && iter->table == 0) {
                     iter->table++;
                     iter->index = 0;
@@ -589,6 +593,7 @@ void dictReleaseIterator(dictIterator *iter)
 
 /* Return a random entry from the hash table. Useful to
  * implement randomized algorithms */
+/*返回随机entry*/
 dictEntry *dictGetRandomKey(dict *d)
 {
     dictEntry *he, *orighe;
@@ -597,6 +602,7 @@ dictEntry *dictGetRandomKey(dict *d)
 
     if (dictSize(d) == 0) return NULL;
     if (dictIsRehashing(d)) _dictRehashStep(d);
+    /*如果还在rehash，要比较两个hash table的值*/
     if (dictIsRehashing(d)) {
         do {
             h = random() % (d->ht[0].size+d->ht[1].size);
@@ -614,6 +620,7 @@ dictEntry *dictGetRandomKey(dict *d)
      * list and we need to get a random element from the list.
      * The only sane way to do so is counting the elements and
      * select a random index. */
+    /*获得一个非空包，但是还是个链表，随机元素*/
     listlen = 0;
     orighe = he;
     while(he) {
@@ -622,6 +629,7 @@ dictEntry *dictGetRandomKey(dict *d)
     }
     listele = random() % listlen;
     he = orighe;
+    /*返回第listele的元素*/
     while(listele--) he = he->next;
     return he;
 }
@@ -629,6 +637,7 @@ dictEntry *dictGetRandomKey(dict *d)
 /* ------------------------- private functions ------------------------------ */
 
 /* Expand the hash table if needed */
+/*rehash 时不扩充，如果ht[0]是空，初始化大小*/
 static int _dictExpandIfNeeded(dict *d)
 {
     /* Incremental rehashing already in progress. Return. */
@@ -641,6 +650,7 @@ static int _dictExpandIfNeeded(dict *d)
      * table (global setting) or we should avoid it but the ratio between
      * elements/buckets is over the "safe" threshold, we resize doubling
      * the number of buckets. */
+    /*如果used > size，则比例大于安全门限，需要resize*/
     if (d->ht[0].used >= d->ht[0].size &&
         (dict_can_resize ||
          d->ht[0].used/d->ht[0].size > dict_force_resize_ratio))
@@ -651,6 +661,7 @@ static int _dictExpandIfNeeded(dict *d)
 }
 
 /* Our hash table capability is a power of two */
+/*hash table 扩充2倍*/
 static unsigned long _dictNextPower(unsigned long size)
 {
     unsigned long i = DICT_HT_INITIAL_SIZE;
@@ -669,6 +680,7 @@ static unsigned long _dictNextPower(unsigned long size)
  *
  * Note that if we are in the process of rehashing the hash table, the
  * index is always returned in the context of the second (new) hash table. */
+/*返回空槽位的索引，如果指定key存在则返回-1，如果正在rehashing则返回的是第二个table的index*/
 static int _dictKeyIndex(dict *d, const void *key)
 {
     unsigned int h, idx, table;
@@ -682,12 +694,14 @@ static int _dictKeyIndex(dict *d, const void *key)
     for (table = 0; table <= 1; table++) {
         idx = h & d->ht[table].sizemask;
         /* Search if this slot does not already contain the given key */
+        /*slot里查询*/
         he = d->ht[table].table[idx];
         while(he) {
             if (dictCompareKeys(d, key, he->key))
                 return -1;
             he = he->next;
         }
+        /*如果没有rehash 则不访问第2个hashtable*/
         if (!dictIsRehashing(d)) break;
     }
     return idx;
