@@ -80,7 +80,7 @@ robj *createStringObjectFromLongDouble(long double value) {
      * that is "non surprising" for the user (that is, most small decimal
      * numbers will be represented in a way that when converted back into
      * a string are exactly the same as what the user typed.) */
-    /*17精度可以标识128位float正确转化为字符串*/
+    /*17精度可以标识16字节float，因为大多数小数存储的时候采用一种可以正确转会字符串的方式*/
     len = snprintf(buf,sizeof(buf),"%.17Lf", value);
     /* Now remove trailing zeroes after the '.' */
     /*去掉.后面的0*/
@@ -100,6 +100,7 @@ robj *dupStringObject(robj *o) {
     return createStringObject(o->ptr,sdslen(o->ptr));
 }
 
+/*list 两种实现,双向链表和ziplist 只是编码不一样*/
 robj *createListObject(void) {
     list *l = listCreate();
     robj *o = createObject(REDIS_LIST,l);
@@ -115,21 +116,21 @@ robj *createZiplistObject(void) {
     o->encoding = REDIS_ENCODING_ZIPLIST;
     return o;
 }
-
+/*set hash实现*/
 robj *createSetObject(void) {
     dict *d = dictCreate(&setDictType,NULL);
     robj *o = createObject(REDIS_SET,d);
     o->encoding = REDIS_ENCODING_HT;
     return o;
 }
-
+/*整数set 实现*/
 robj *createIntsetObject(void) {
     intset *is = intsetNew();
     robj *o = createObject(REDIS_SET,is);
     o->encoding = REDIS_ENCODING_INTSET;
     return o;
 }
-
+/*hash ziplist 实现*/
 robj *createHashObject(void) {
     unsigned char *zl = ziplistNew();
     robj *o = createObject(REDIS_HASH, zl);
@@ -137,6 +138,7 @@ robj *createHashObject(void) {
     return o;
 }
 
+/*跳跃表实现压缩set*/
 robj *createZsetObject(void) {
     zset *zs = zmalloc(sizeof(*zs));
     robj *o;
@@ -147,7 +149,7 @@ robj *createZsetObject(void) {
     o->encoding = REDIS_ENCODING_SKIPLIST;
     return o;
 }
-
+/*ziplist*/
 robj *createZsetZiplistObject(void) {
     unsigned char *zl = ziplistNew();
     robj *o = createObject(REDIS_ZSET,zl);
@@ -161,6 +163,7 @@ void freeStringObject(robj *o) {
     }
 }
 
+/*list 两种实现*/
 void freeListObject(robj *o) {
     switch (o->encoding) {
     case REDIS_ENCODING_LINKEDLIST:
@@ -173,7 +176,7 @@ void freeListObject(robj *o) {
         redisPanic("Unknown list encoding type");
     }
 }
-
+/**/
 void freeSetObject(robj *o) {
     switch (o->encoding) {
     case REDIS_ENCODING_HT:
@@ -242,6 +245,7 @@ void decrRefCount(robj *o) {
 /* This variant of decrRefCount() gets its argument as void, and is useful
  * as free method in data structures that expect a 'void free_object(void*)'
  * prototype for the free method. */
+/*在数据结构中用于free方法，比如dict type中的free方法和上面listfree的方法*/
 void decrRefCountVoid(void *o) {
     decrRefCount(o);
 }
@@ -258,11 +262,12 @@ void decrRefCountVoid(void *o) {
  *    functionThatWillIncrementRefCount(obj);
  *    decrRefCount(obj);
  */
+/*设置refcont 为0，并不free，有利于传一个新的对象进去并重新增加refcount*/
 robj *resetRefCount(robj *obj) {
     obj->refcount = 0;
     return obj;
 }
-
+/*检查类型是否一致并返回客户错误信息*/
 int checkType(redisClient *c, robj *o, int type) {
     if (o->type != type) {
         addReply(c,shared.wrongtypeerr);
@@ -270,18 +275,21 @@ int checkType(redisClient *c, robj *o, int type) {
     }
     return 0;
 }
-
+/*判断object 是否可以表示为longlong*/
 int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
     redisAssertWithInfo(NULL,o,o->type == REDIS_STRING);
+    /*如果对象编码为int则可以*/
     if (o->encoding == REDIS_ENCODING_INT) {
         if (llval) *llval = (long) o->ptr;
         return REDIS_OK;
     } else {
+      /*字符串转为ll*/
         return string2ll(o->ptr,sdslen(o->ptr),llval) ? REDIS_OK : REDIS_ERR;
     }
 }
 
 /* Try to encode a string object in order to save space */
+/*为了节省空间，对string对象重编码*/
 robj *tryObjectEncoding(robj *o) {
     long value;
     sds s = o->ptr;
@@ -538,6 +546,7 @@ char *strEncoding(int encoding) {
 
 /* Given an object returns the min number of seconds the object was never
  * requested, using an approximated LRU algorithm. */
+/*给定一个对象估算空转时间，类似于lru近似算法*/
 unsigned long estimateObjectIdleTime(robj *o) {
     if (server.lruclock >= o->lru) {
         return (server.lruclock - o->lru) * REDIS_LRU_CLOCK_RESOLUTION;
@@ -552,19 +561,21 @@ unsigned long estimateObjectIdleTime(robj *o) {
 robj *objectCommandLookup(redisClient *c, robj *key) {
     dictEntry *de;
 
+    /*找到redisclient中指定db的dict，取得气entry*/
     if ((de = dictFind(c->db->dict,key->ptr)) == NULL) return NULL;
     return (robj*) dictGetVal(de);
 }
 
 robj *objectCommandLookupOrReply(redisClient *c, robj *key, robj *reply) {
     robj *o = objectCommandLookup(c,key);
-
+/*如果找不到指定key的命令，则返回replay信息*/
     if (!o) addReply(c, reply);
     return o;
 }
 
 /* Object command allows to inspect the internals of an Redis Object.
  * Usage: OBJECT <verb> ... arguments ... */
+/*object 命令*/
 void objectCommand(redisClient *c) {
     robj *o;
 
@@ -576,6 +587,7 @@ void objectCommand(redisClient *c) {
         if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nullbulk))
                 == NULL) return;
         addReplyBulkCString(c,strEncoding(o->encoding));
+        /*读取key自存储以来空转时间（没有被读取也没有写入的时间）*/
     } else if (!strcasecmp(c->argv[1]->ptr,"idletime") && c->argc == 3) {
         if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nullbulk))
                 == NULL) return;
