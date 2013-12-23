@@ -53,6 +53,8 @@
 struct aeEventLoop;
 
 /* Types and data structures */
+/*代码简化, 促进跨平台开发的目的.*/
+/*编译时被解释，因此让编译器来应付超越预处理器能力的文本替换。*/
 typedef void aeFileProc(struct aeEventLoop *eventLoop, int fd, void *clientData, int mask);
 typedef int aeTimeProc(struct aeEventLoop *eventLoop, long long id, void *clientData);
 typedef void aeEventFinalizerProc(struct aeEventLoop *eventLoop, void *clientData);

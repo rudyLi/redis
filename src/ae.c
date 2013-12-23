@@ -68,6 +68,7 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
     eventLoop->events = zmalloc(sizeof(aeFileEvent)*setsize);
     eventLoop->fired = zmalloc(sizeof(aeFiredEvent)*setsize);
     if (eventLoop->events == NULL || eventLoop->fired == NULL) goto err;
+	/*最大跟踪事件大小*/
     eventLoop->setsize = setsize;
     eventLoop->lastTime = time(NULL);
     eventLoop->timeEventHead = NULL;
@@ -78,6 +79,7 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
     if (aeApiCreate(eventLoop) == -1) goto err;
     /* Events with mask == AE_NONE are not set. So let's initialize the
      * vector with it. */
+	/*初始化每个文件事件的屏蔽字0*/
     for (i = 0; i < setsize; i++)
         eventLoop->events[i].mask = AE_NONE;
     return eventLoop;
@@ -109,14 +111,17 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         errno = ERANGE;
         return AE_ERR;
     }
+	/*fd 为数组index，保证一个fd只能一个操作*/
     aeFileEvent *fe = &eventLoop->events[fd];
 
     if (aeApiAddEvent(eventLoop, fd, mask) == -1)
         return AE_ERR;
+	/*init 时为aenone,与mask或操作,readable 为1*/
     fe->mask |= mask;
     if (mask & AE_READABLE) fe->rfileProc = proc;
     if (mask & AE_WRITABLE) fe->wfileProc = proc;
     fe->clientData = clientData;
+	/*跟新最大fd*/
     if (fd > eventLoop->maxfd)
         eventLoop->maxfd = fd;
     return AE_OK;
@@ -128,6 +133,7 @@ void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
     aeFileEvent *fe = &eventLoop->events[fd];
 
     if (fe->mask == AE_NONE) return;
+	/*fe->mask 如果mask一致则设置为aenone 如果部一致，则保持原来部变*/
     fe->mask = fe->mask & (~mask);
     if (fd == eventLoop->maxfd && fe->mask == AE_NONE) {
         /* Update the max fd */
@@ -180,6 +186,7 @@ long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
     te = zmalloc(sizeof(*te));
     if (te == NULL) return AE_ERR;
     te->id = id;
+	/millseconde后执行/
     aeAddMillisecondsToNow(milliseconds,&te->when_sec,&te->when_ms);
     te->timeProc = proc;
     te->finalizerProc = finalizerProc;
@@ -324,12 +331,14 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
     int processed = 0, numevents;
 
     /* Nothing to do? return ASAP */
+	/*如果不是时间事件(1)也不是文件事件(2)或者all则立刻返回*/
     if (!(flags & AE_TIME_EVENTS) && !(flags & AE_FILE_EVENTS)) return 0;
 
     /* Note that we want call select() even if there are no
      * file events to process as long as we want to process time
      * events, in order to sleep until the next time event is ready
      * to fire. */
+	/*如果没有文件执行时，我们可以执行select阻塞一定时间直到有时间事件准备执行*/
     if (eventLoop->maxfd != -1 ||
         ((flags & AE_TIME_EVENTS) && !(flags & AE_DONT_WAIT))) {
         int j;
@@ -337,6 +346,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
         struct timeval tv, *tvp;
 
         if (flags & AE_TIME_EVENTS && !(flags & AE_DONT_WAIT))
+		  /*返回最近的事件间隔*/
             shortest = aeSearchNearestTimer(eventLoop);
         if (shortest) {
             long now_sec, now_ms;
@@ -345,8 +355,10 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
              * timer to fire. */
             aeGetTime(&now_sec, &now_ms);
             tvp = &tv;
+			/*获得当前事件与最近时间事件的差值*/
             tvp->tv_sec = shortest->when_sec - now_sec;
             if (shortest->when_ms < now_ms) {
+				/*借位操作*/
                 tvp->tv_usec = ((shortest->when_ms+1000) - now_ms)*1000;
                 tvp->tv_sec --;
             } else {
@@ -366,7 +378,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
                 tvp = NULL; /* wait forever */
             }
         }
-
+/*阻塞tvp事件查询file event*/
         numevents = aeApiPoll(eventLoop, tvp);
         for (j = 0; j < numevents; j++) {
             aeFileEvent *fe = &eventLoop->events[eventLoop->fired[j].fd];
@@ -405,23 +417,27 @@ int aeWait(int fd, int mask, long long milliseconds) {
     pfd.fd = fd;
     if (mask & AE_READABLE) pfd.events |= POLLIN;
     if (mask & AE_WRITABLE) pfd.events |= POLLOUT;
-
+/*阻塞等待mullseconds返回指定fd*/
     if ((retval = poll(&pfd, 1, milliseconds))== 1) {
         if (pfd.revents & POLLIN) retmask |= AE_READABLE;
         if (pfd.revents & POLLOUT) retmask |= AE_WRITABLE;
+		/*异常也是writetable事件*/
 	if (pfd.revents & POLLERR) retmask |= AE_WRITABLE;
         if (pfd.revents & POLLHUP) retmask |= AE_WRITABLE;
         return retmask;
     } else {
+		/*返回错误*/
         return retval;
     }
 }
 
 void aeMain(aeEventLoop *eventLoop) {
     eventLoop->stop = 0;
+	/*循环事件*/
     while (!eventLoop->stop) {
         if (eventLoop->beforesleep != NULL)
             eventLoop->beforesleep(eventLoop);
+		/*如果设为ae all event 则所有事件执行*/
         aeProcessEvents(eventLoop, AE_ALL_EVENTS);
     }
 }
